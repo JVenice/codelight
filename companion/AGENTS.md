@@ -356,8 +356,9 @@ Behavior and quirks:
 - The endpoint is **undocumented** (absent from Ollama's OpenAPI spec), so the
   fetcher fails closed exactly like Cursor's: no key, a rejected key, a changed
   schema or an offline host all hide the meter instead of showing a number.
-- **No reset countdown — clients show `↻ --`.** The response carries no reset
-  timestamp for either window. `activity.period` is a 4-week *activity* range,
+- **No reset countdown — clients render an empty reset.** The response carries
+  no reset timestamp for either window; the state layer's `"--"` default stands.
+  `activity.period` is a 4-week *activity* range,
   not a quota reset: a countdown built from it would be wrong by up to three
   weeks on weekly and always wrong on session. As with the Grok meter above,
   codelight shows nothing rather than a number that means something other than
