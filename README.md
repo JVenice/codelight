@@ -16,6 +16,7 @@ questions** from supported clients. Pick and choose whatever suits your needs:
 | Cursor (IDE / `cursor-agent` CLI) | ✅ | ✅ <sup>3</sup> | ✅ <sup>4</sup> | — <sup>5</sup> | ✅ |
 | Grok (xAI) | ✅ | — <sup>6</sup> | — <sup>7</sup> | — <sup>7</sup> | ✅ |
 | OpenCode | ✅ <sup>8</sup> | ✅ <sup>9</sup> | ✅ <sup>11</sup> | ✅ | ✅ <sup>10</sup> |
+| Ollama Cloud | — <sup>12</sup> | ✅ <sup>13</sup> | — <sup>12</sup> | — <sup>12</sup> | — <sup>12</sup> |
 
 <sub>
 1. Copilot usage is the organization's pooled monthly AI-credit meter — needs `agents.copilot.github_org` and a token.<br>
@@ -28,7 +29,9 @@ questions** from supported clients. Pick and choose whatever suits your needs:
 8. OpenCode has no hooks; codelight follows its local HTTP server's event stream (run `opencode serve --port 4096`, or set `agents.opencode.server_url`).<br>
 9. OpenCode is BYOK (no provider quota), so the meter is an opt-in monthly $-budget you set (`agents.opencode.monthly_budget_usd`) against spend read from its local store — a tracking budget, not an enforced limit.<br>
 10. OpenCode conversation following reads the active session's messages from the server API (needs the server running, per note 8).<br>
-11. OpenCode remote approval works for prompts initiated via the server API — including instructions you send from codelight (remote steering). Prompts typed at OpenCode's interactive TUI raise a legacy permission the TUI handles locally and won't dismiss on an external reply (an OpenCode-side limitation, like the Cursor CLI). It can also *send* new instructions to a running agent — the first agent codelight can drive, not just observe.
+11. OpenCode remote approval works for prompts initiated via the server API — including instructions you send from codelight (remote steering). Prompts typed at OpenCode's interactive TUI raise a legacy permission the TUI handles locally and won't dismiss on an external reply (an OpenCode-side limitation, like the Cursor CLI). It can also *send* new instructions to a running agent — the first agent codelight can drive, not just observe.<br>
+12. Ollama Cloud is a model host rather than a coding agent, so codelight reports its usage and nothing else: there is no session to follow, and no local `ollama` binary is probed for — a model server is not a coding-agent session.<br>
+13. The Ollama session and weekly meters need an API key (`OLLAMA_API_KEY`, or `agents.ollama.api_key_file`) and hide themselves if it is missing or rejected. Ollama's usage endpoint reports no reset timestamp for either window, so both bars show an empty reset (`↻ --` in the panels, `(resets --)` in VSCode); the 4-week range it does report is an activity window, not a quota reset.
 </sub>
 
 <br>Agent-specific setup, caveats, and config keys live in
