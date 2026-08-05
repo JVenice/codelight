@@ -332,6 +332,60 @@ Behavior and quirks:
   messages are dropped; assistant tool calls show as a `⚙ <tool>` line.
 - Detection: `opencode` on PATH.
 
+## Ollama (`agents.ollama`)
+
+Keys:
+
+- `api_key_file` (string): file containing an Ollama Cloud API key, used for
+  the usage meter (or set `OLLAMA_API_KEY`).
+  - Default: empty (no meter)
+- `usage` (boolean): show the usage meters. Default: `true`.
+
+Ollama is a **usage meter and nothing else** — no status, permissions,
+questions, conversation or hooks. codelight deliberately does *not* probe for a
+local `ollama` binary: a local model server is not a coding-agent session, so
+detecting it would only produce a permanently-idle card with nothing to report.
+The card appears once a key is configured and the meter reads.
+
+Behavior and quirks:
+
+- **Usage meter:** session and weekly percentages from
+  `GET https://ollama.com/api/usage`, authed with `Authorization: Bearer`.
+  Ollama reports these as 0–1 fractions already — unlike Claude's 0–100, they
+  are not divided by 100.
+- The endpoint is **undocumented** (absent from Ollama's OpenAPI spec), so the
+  fetcher fails closed exactly like Cursor's: no key, a rejected key, a changed
+  schema or an offline host all hide the meter instead of showing a number.
+- **No reset countdown — clients show `↻ --`.** The response carries no reset
+  timestamp for either window. `activity.period` is a 4-week *activity* range,
+  not a quota reset: a countdown built from it would be wrong by up to three
+  weeks on weekly and always wrong on session. As with the Grok meter above,
+  codelight shows nothing rather than a number that means something other than
+  its label.
+- Key resolution: `OLLAMA_API_KEY`, then `agents.ollama.api_key_file`.
+  Env-or-file only — no inline secret in config. The key is re-read on every
+  poll, so creating the file later starts the meter without a restart, and it
+  is never logged (nor is the response body).
+- A window that is missing or unreadable drops only its own bar — the same
+  behavior Codex got when OpenAI removed its 5-hour window. If neither window
+  reads, the meter hides entirely.
+- Ollama is the 7th agent and sorts before `opencode`, so it takes the last of
+  the six branding slots the ESP8266 screen can hold. The only effect is that
+  OpenCode's logo no longer appears in the sleep-screen logo pool; raising the
+  cap means changing the firmware's `MAX_AGENT_LOGOS` and reflashing.
+
+Example:
+
+```json
+{
+  "agents": {
+    "ollama": {
+      "api_key_file": "~/.config/codelight/ollama-api-key"
+    }
+  }
+}
+```
+
 ## Combined example
 
 ```json
