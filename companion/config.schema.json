@@ -94,6 +94,20 @@
             }
           }
         },
+        "ollama": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "api_key_file": {
+              "type": "string",
+              "description": "Path to a file containing an Ollama Cloud API key for the usage meter (or set OLLAMA_API_KEY)."
+            },
+            "usage": {
+              "type": "boolean",
+              "description": "Show Ollama Cloud's session and weekly usage meters via its account API (default true)."
+            }
+          }
+        },
         "opencode": {
           "type": "object",
           "additionalProperties": false,
