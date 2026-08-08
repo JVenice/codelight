@@ -337,7 +337,8 @@ Behavior and quirks:
 Keys:
 
 - `api_key_file` (string): file containing an Ollama Cloud API key, used for
-  the usage meter (or set `OLLAMA_API_KEY`).
+  the usage meter (or set `OLLAMA_API_KEY`, or drop the key in
+  `~/.config/codelight/ollama-api-key`).
   - Default: empty (no meter)
 - `usage` (boolean): show the usage meters. Default: `true`.
 
@@ -363,10 +364,20 @@ Behavior and quirks:
   weeks on weekly and always wrong on session. As with the Grok meter above,
   codelight shows nothing rather than a number that means something other than
   its label.
-- Key resolution: `OLLAMA_API_KEY`, then `agents.ollama.api_key_file`.
-  Env-or-file only — no inline secret in config. The key is re-read on every
-  poll, so creating the file later starts the meter without a restart, and it
-  is never logged (nor is the response body).
+- Key resolution: `OLLAMA_API_KEY`, then `agents.ollama.api_key_file`, then
+  the conventional `~/.config/codelight/ollama-api-key`. Env-or-file only — no
+  inline secret in config. The key is re-read on every poll, so creating the
+  file later starts the meter without a restart, and it is never logged (nor
+  is the response body). The conventional default exists so a companion
+  launched outside an interactive shell (desktop autostart, a service
+  manager) still finds a key the user dropped once: a key that lives only in
+  `~/.zshrc`/`~/.zshenv` never reaches a non-interactive process, and the
+  meter would be silently absent after a reboot.
+- **No key is a legible failure, not a silent absence.** With no credential
+  the meter is hidden (and, Ollama being usage-only with no status card, the
+  agent then disappears from every client). The daemon logs the reason once
+  per process pointing at the three resolution paths above, so a missing card
+  is diagnosable instead of mysterious.
 - A window that is missing or unreadable drops only its own bar — the same
   behavior Codex got when OpenAI removed its 5-hour window. If neither window
   reads, the meter hides entirely.
@@ -375,7 +386,8 @@ Behavior and quirks:
   OpenCode's logo no longer appears in the sleep-screen logo pool; raising the
   cap means changing the firmware's `MAX_AGENT_LOGOS` and reflashing.
 
-Example:
+Example — explicit config (optional; the conventional default path below is
+read without any config entry):
 
 ```json
 {
@@ -386,6 +398,10 @@ Example:
   }
 }
 ```
+
+Zero-config alternative: `echo 'YOUR-KEY' > ~/.config/codelight/ollama-api-key`
+— the companion reads that path with no config entry, so it works from any
+launch path (terminal, desktop autostart, service manager).
 
 ## Combined example
 

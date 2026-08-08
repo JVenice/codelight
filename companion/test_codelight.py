@@ -2436,19 +2436,63 @@ class OllamaIntegrationTests(unittest.TestCase):
         self.assertNotIn("example.com", joined)
         self.assertIn("402", joined)
 
-    def test_api_key_prefers_env_then_file(self):
+    def test_api_key_prefers_env_then_file_then_default_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             key_file = os.path.join(tmp, "ollama-key")
+            default_path = os.path.join(tmp, "default-key")
             with open(key_file, "w") as stream:
                 stream.write("from-file\n")
+            with open(default_path, "w") as stream:
+                stream.write("from-default\n")
 
-            with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": "from-env"}):
-                self.assertEqual(ollama_agent.api_key(key_file), "from-env")
-            with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": ""}):
-                self.assertEqual(ollama_agent.api_key(key_file), "from-file")
-                self.assertEqual(ollama_agent.api_key(""), "")
-                self.assertEqual(
-                    ollama_agent.api_key(os.path.join(tmp, "gone")), "")
+            with mock.patch.object(ollama_agent, "DEFAULT_KEY_PATH",
+                                   default_path):
+                # env beats both files.
+                with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": "from-env"}):
+                    self.assertEqual(
+                        ollama_agent.api_key(key_file), "from-env")
+                # configured api_key_file beats the conventional default.
+                with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": ""}):
+                    self.assertEqual(
+                        ollama_agent.api_key(key_file), "from-file")
+                    # no configured file: fall through to the default path, so a
+                    # companion launched with no shell env and no config still
+                    # finds a key the user dropped once.
+                    self.assertEqual(ollama_agent.api_key(""), "from-default")
+                    # a configured-but-missing file also falls through to the
+                    # default rather than hiding the meter.
+                    self.assertEqual(
+                        ollama_agent.api_key(os.path.join(tmp, "gone")),
+                        "from-default")
+
+                # With neither a configured file nor a default present, the
+                # meter stays hidden — host-independent because the default
+                # path is patched to a temp dir.
+                with mock.patch.object(ollama_agent, "DEFAULT_KEY_PATH",
+                                      os.path.join(tmp, "also-gone")):
+                    with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": ""}):
+                        self.assertEqual(ollama_agent.api_key(""), "")
+
+    def test_no_key_logs_a_legible_hint_once(self):
+        """A usage-only agent with no credential vanishes from every client
+        (no status, no meter) — the one silent failure. The daemon log must
+        say why once instead of every poll, and never print a key."""
+        ollama_agent._no_key_warned = False
+        lines = []
+        self.assertIsNone(
+            ollama_agent.get_usage("", log=lines.append))
+        self.assertEqual(len(lines), 1)
+        self.assertIn("no API key", lines[0])
+        self.assertIn("ollama-api-key", lines[0])
+        # Second poll with no key: stay quiet — not every 2 s tick.
+        before = len(lines)
+        self.assertIsNone(
+            ollama_agent.get_usage("", log=lines.append))
+        self.assertEqual(len(lines), before)
+        # A real key never triggers the hint; reset the guard for later tests.
+        ollama_agent._no_key_warned = False
+        self.fetch(self.body(), key="real-key", log=lines.append)
+        ollama_agent._no_key_warned = False
 
     def test_derived_limits_render_with_an_unknown_reset(self):
         """Percentage-known / reset-unknown is a first-class state: the meter

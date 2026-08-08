@@ -28,6 +28,24 @@ from codelight_core.agents import base
 
 USAGE_API = "https://ollama.com/api/usage"
 
+# A conventional credential file the companion reads without any shell
+# environment or config entry. A key that lives only in an interactive shell
+# (e.g. ~/.zshrc sourcing a secrets file) never reaches a companion launched
+# by the desktop session or a service manager, so the meter is silently
+# absent after a reboot. Dropping the key here once makes the meter work from
+# any launch path. Resolved after OLLAMA_API_KEY and agents.ollama.api_key_file.
+DEFAULT_KEY_PATH = os.path.expanduser("~/.config/codelight/ollama-api-key")
+
+# Said once per process so a missing credential is legible in the daemon log
+# instead of a silently-absent card. Reset for tests by setting this False.
+_no_key_warned = False
+NO_KEY_HINT = (
+    "[ollama-usage] meter hidden: no API key configured. Set OLLAMA_API_KEY "
+    "in the companion's launch environment, configure "
+    "agents.ollama.api_key_file, or write the key to "
+    "~/.config/codelight/ollama-api-key."
+)
+
 # Ollama's llama mark (simple-icons), fills with currentColor.
 LOGO_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
@@ -58,16 +76,27 @@ SPEC = base.AgentSpec(
 
 def api_key(api_key_file: str = "") -> str:
     """Ollama Cloud API key: ``OLLAMA_API_KEY`` first, then a configured key
-    file. Env-or-file only — no inline secret in config. Never logged."""
+    file, then the conventional ``~/.config/codelight/ollama-api-key``.
+    Env-or-file only — no inline secret in config. Never logged.
+
+    The conventional default exists so a companion launched outside an
+    interactive shell (desktop autostart, a service manager) can still find a
+    key the user dropped once, without editing shell files or config. It is
+    re-read on every poll, so creating the file later starts the meter without
+    a restart."""
     env = os.environ.get("OLLAMA_API_KEY", "").strip()
     if env:
         return env
-    if api_key_file:
+    for path in (api_key_file, DEFAULT_KEY_PATH):
+        if not path:
+            continue
         try:
-            with open(os.path.expanduser(api_key_file)) as stream:
-                return stream.read().strip()
+            with open(os.path.expanduser(path)) as stream:
+                value = stream.read().strip()
         except Exception:
-            return ""
+            continue
+        if value:
+            return value
     return ""
 
 
@@ -98,6 +127,14 @@ def get_usage(
     survives, the whole meter is hidden. Returns None (meter hidden) on any
     issue — no key, rejected key, endpoint changed, offline."""
     if not key:
+        # The one silent failure: with no credential the meter simply does
+        # not appear, and a usage-only agent (no status) then vanishes from
+        # every client. Say why, once, so this is legible in the daemon log
+        # rather than a mystery missing card. Never logs the key or response.
+        global _no_key_warned
+        if log is not None and not _no_key_warned:
+            _no_key_warned = True
+            log(NO_KEY_HINT)
         return None
     req = urllib.request.Request(usage_api, headers={
         "Authorization": f"Bearer {key}",
@@ -163,7 +200,8 @@ class OllamaAgent:
 def build_integration(config: dict, *,
                       log: Callable[[str], None] | None = None) -> base.AgentIntegration:
     """Config keys (~/.config/codelight/config.json, agents.ollama):
-    api_key_file (Ollama Cloud API key file; or set OLLAMA_API_KEY),
+    api_key_file (Ollama Cloud API key file; or set OLLAMA_API_KEY, or drop
+    the key in ~/.config/codelight/ollama-api-key),
     usage (default true)."""
     api_key_file = os.path.expanduser(str(config.get("api_key_file") or "").strip())
     usage_enabled = bool(config.get("usage", True))

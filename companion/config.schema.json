@@ -100,7 +100,7 @@
           "properties": {
             "api_key_file": {
               "type": "string",
-              "description": "Path to a file containing an Ollama Cloud API key for the usage meter (or set OLLAMA_API_KEY)."
+              "description": "Path to a file containing an Ollama Cloud API key for the usage meter (or set OLLAMA_API_KEY, or drop the key in ~/.config/codelight/ollama-api-key, which is read with no config entry)."
             },
             "usage": {
               "type": "boolean",
