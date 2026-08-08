@@ -22,6 +22,7 @@ from codelight_core.agents import codex as codex_agent
 from codelight_core.agents import copilot as copilot_agent
 from codelight_core.agents import cursor as cursor_agent
 from codelight_core.agents import grok as grok_agent
+from codelight_core.agents import ollama as ollama_agent
 from codelight_core.agents import opencode as opencode_agent
 from codelight_core.state import CodelightState
 from codelight_core import auth as auth_core
@@ -1172,8 +1173,12 @@ class UsagePollerTests(unittest.TestCase):
             )
 
             self.assertEqual(copilot.token(), "token")
-            self.assertEqual(set(registry.usage_fetchers()),
-                             {"claude", "codex", "copilot", "cursor", "opencode"})
+            # Grok is absent: its fetcher only registers with a management key.
+            # Ollama's registers unconditionally and resolves its credential
+            # per poll, so a key file added later needs no restart.
+            self.assertEqual(
+                set(registry.usage_fetchers()),
+                {"claude", "codex", "copilot", "cursor", "ollama", "opencode"})
             self.assertIsNotNone(usage)
             self.assertEqual(usage["used_credits"], 100)
 
@@ -2285,6 +2290,251 @@ class CursorIntegrationTests(unittest.TestCase):
     def test_session_id_accepts_cursor_conversation_id(self):
         self.assertEqual(
             hook_runtime.session_id({"conversation_id": "c1"}), "c1")
+
+
+class OllamaIntegrationTests(unittest.TestCase):
+    """Ollama Cloud is a usage meter and nothing else. Its endpoint reports
+    fractions and no reset timestamps, so these pin the two things easiest to
+    get wrong: a stray /100, and a reset invented from `activity.period`."""
+
+    # Never a production hostname from a test.
+    USAGE_API = "http://ollama.invalid/api/usage"
+
+    def response(self, payload):
+        class FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return json.dumps(payload).encode()
+        return FakeResp()
+
+    def fetch(self, payload, *, key="ollama-test-key", log=None):
+        """Run get_usage against a canned body, returning (usage, headers)."""
+        captured = {}
+
+        def fake_urlopen(req, timeout=0):
+            captured["headers"] = dict(req.headers)
+            captured["timeout"] = timeout
+            return self.response(payload)
+
+        with mock.patch.object(ollama_agent.urllib.request, "urlopen",
+                               side_effect=fake_urlopen):
+            usage = ollama_agent.get_usage(
+                key, usage_api=self.USAGE_API, log=log)
+        return usage, captured
+
+    def body(self, session=0.134, weekly=0.24):
+        """The shape GET /api/usage actually returns (verified 2026-08-05)."""
+        return {
+            "limits": {
+                "session": {"usage": session,
+                            "models": [{"name": "glm-5.2", "request_count": 34}]},
+                "weekly": {"usage": weekly,
+                           "models": [{"name": "glm-5.2", "request_count": 254}]},
+            },
+            "activity": {
+                "cost": "0.00000",
+                "period": {"type": "last_4_weeks",
+                           "starting_at": "2026-07-08T00:00:00Z",
+                           "ending_at": "2026-08-05T00:00:00Z"},
+                "models": [],
+            },
+        }
+
+    def test_usage_reports_fractions_verbatim_with_bearer_auth(self):
+        usage, captured = self.fetch(self.body())
+
+        # Ollama reports 0..1 already: a /100 here would render 13% as 0.13%.
+        self.assertEqual(usage, {"session_pct": 0.134, "weekly_pct": 0.24})
+        self.assertEqual(captured["headers"]["Authorization"],
+                         "Bearer ollama-test-key")
+        self.assertEqual(captured["headers"]["Accept"], "application/json")
+        self.assertEqual(captured["headers"]["User-agent"], "codelight")
+        self.assertEqual(captured["timeout"], 10)
+
+    def test_usage_carries_no_reset_and_no_derived_limits(self):
+        usage, _ = self.fetch(self.body())
+
+        # The endpoint has no reset timestamps, and activity.period is a 4-week
+        # activity window — never a quota reset. Nothing may be synthesized
+        # from it, and the state layer owns the `limits` list.
+        for key in usage:
+            self.assertNotIn("reset", key)
+        self.assertNotIn("limits", usage)
+        self.assertNotIn("models", json.dumps(usage))
+
+    def test_missing_or_unreadable_window_drops_only_that_bar(self):
+        body = self.body()
+        del body["limits"]["session"]
+        usage, _ = self.fetch(body)
+        self.assertEqual(usage, {"weekly_pct": 0.24})
+
+        # Present but not a number: same treatment, so the bar disappears
+        # instead of reading 0%.
+        for broken in (None, "0.5", True, {}):
+            body = self.body()
+            body["limits"]["weekly"]["usage"] = broken
+            usage, _ = self.fetch(body)
+            self.assertEqual(usage, {"session_pct": 0.134}, broken)
+
+    def test_percentages_are_clamped_to_0_1(self):
+        usage, _ = self.fetch(self.body(session=-0.2, weekly=1.4))
+        self.assertEqual(usage, {"session_pct": 0.0, "weekly_pct": 1.0})
+
+    def test_every_failure_hides_the_meter(self):
+        # No credential: not even a request.
+        with mock.patch.object(ollama_agent.urllib.request, "urlopen",
+                               side_effect=AssertionError("must not call")):
+            self.assertIsNone(ollama_agent.get_usage(""))
+
+        error = urllib.error.HTTPError(
+            self.USAGE_API, 401, "Unauthorized", {}, None)
+        timeout = TimeoutError("timed out")
+        try:
+            for failure in (error, timeout):
+                with mock.patch.object(ollama_agent.urllib.request, "urlopen",
+                                       side_effect=failure):
+                    self.assertIsNone(ollama_agent.get_usage(
+                        "bad-key", usage_api=self.USAGE_API), failure)
+        finally:
+            error.close()
+
+        # Malformed body, wrong shape, and a response with no usable window.
+        class Garbage:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b"<html>not json</html>"
+
+        with mock.patch.object(ollama_agent.urllib.request, "urlopen",
+                               return_value=Garbage()):
+            self.assertIsNone(ollama_agent.get_usage(
+                "k", usage_api=self.USAGE_API))
+        for payload in ([], {"limits": "nope"}, {}, {"limits": {}},
+                        {"limits": {"session": {"usage": None}}}):
+            usage, _ = self.fetch(payload)
+            self.assertIsNone(usage, payload)
+
+    def test_neither_the_key_nor_the_response_body_is_logged(self):
+        lines = []
+        key = "sk-super-secret"
+        self.fetch(self.body(), key=key, log=lines.append)
+
+        error = urllib.error.HTTPError(
+            self.USAGE_API, 402, "Payment Required", {},
+            io.BytesIO(b'{"error":"account suspended for user@example.com"}'))
+        try:
+            with mock.patch.object(ollama_agent.urllib.request, "urlopen",
+                                   side_effect=error):
+                ollama_agent.get_usage(key, usage_api=self.USAGE_API,
+                                       log=lines.append)
+        finally:
+            error.close()
+
+        joined = "\n".join(lines)
+        self.assertTrue(joined)
+        self.assertNotIn(key, joined)
+        self.assertNotIn("suspended", joined)
+        self.assertNotIn("example.com", joined)
+        self.assertIn("402", joined)
+
+    def test_api_key_prefers_env_then_file_then_default_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            key_file = os.path.join(tmp, "ollama-key")
+            default_path = os.path.join(tmp, "default-key")
+            with open(key_file, "w") as stream:
+                stream.write("from-file\n")
+            with open(default_path, "w") as stream:
+                stream.write("from-default\n")
+
+            with mock.patch.object(ollama_agent, "DEFAULT_KEY_PATH",
+                                   default_path):
+                # env beats both files.
+                with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": "from-env"}):
+                    self.assertEqual(
+                        ollama_agent.api_key(key_file), "from-env")
+                # configured api_key_file beats the conventional default.
+                with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": ""}):
+                    self.assertEqual(
+                        ollama_agent.api_key(key_file), "from-file")
+                    # no configured file: fall through to the default path, so a
+                    # companion launched with no shell env and no config still
+                    # finds a key the user dropped once.
+                    self.assertEqual(ollama_agent.api_key(""), "from-default")
+                    # a configured-but-missing file also falls through to the
+                    # default rather than hiding the meter.
+                    self.assertEqual(
+                        ollama_agent.api_key(os.path.join(tmp, "gone")),
+                        "from-default")
+
+                # With neither a configured file nor a default present, the
+                # meter stays hidden — host-independent because the default
+                # path is patched to a temp dir.
+                with mock.patch.object(ollama_agent, "DEFAULT_KEY_PATH",
+                                      os.path.join(tmp, "also-gone")):
+                    with mock.patch.dict(os.environ, {"OLLAMA_API_KEY": ""}):
+                        self.assertEqual(ollama_agent.api_key(""), "")
+
+    def test_no_key_logs_a_legible_hint_once(self):
+        """A usage-only agent with no credential vanishes from every client
+        (no status, no meter) — the one silent failure. The daemon log must
+        say why once instead of every poll, and never print a key."""
+        ollama_agent._no_key_warned = False
+        lines = []
+        self.assertIsNone(
+            ollama_agent.get_usage("", log=lines.append))
+        self.assertEqual(len(lines), 1)
+        self.assertIn("no API key", lines[0])
+        self.assertIn("ollama-api-key", lines[0])
+        # Second poll with no key: stay quiet — not every 2 s tick.
+        before = len(lines)
+        self.assertIsNone(
+            ollama_agent.get_usage("", log=lines.append))
+        self.assertEqual(len(lines), before)
+        # A real key never triggers the hint; reset the guard for later tests.
+        ollama_agent._no_key_warned = False
+        self.fetch(self.body(), key="real-key", log=lines.append)
+        ollama_agent._no_key_warned = False
+
+    def test_derived_limits_render_with_an_unknown_reset(self):
+        """Percentage-known / reset-unknown is a first-class state: the meter
+        shows both bars and the clients render `--` rather than an epoch."""
+        state = CodelightState(
+            default_agent_id="claude",
+            agent_registry=codelight.AGENT_REGISTRY,
+            idle_window=600,
+            idle_window_waiting=30,
+        )
+        usage, _ = self.fetch(self.body())
+        state.update_usage(usages={"ollama": usage})
+
+        entry = state.status_snapshot()["per_agent_usage"]["ollama"]
+        self.assertEqual(entry["agent_display"], "Ollama")
+        self.assertEqual(
+            [(lim["label"], lim["pct"], lim["reset"], lim["reset_at"])
+             for lim in entry["limits"]],
+            [("Weekly", 0.24, "--", 0), ("Session", 0.134, "--", 0)])
+
+    def test_registry_exposes_ollama_as_a_usage_only_agent(self):
+        registry = codelight._new_agent_registry()
+        self.assertIn("ollama", registry.supported_agent_ids())
+        self.assertIn("ollama", registry.usage_fetchers())
+        # Usage only: no session detection, no hooks, no conversation. A local
+        # `ollama` server is not a coding-agent session.
+        self.assertEqual(registry.executables_by_agent().get("ollama", ()), ())
+        meta = registry.client_metadata("vscode")["ollama"]
+        self.assertFalse(meta["conversation"])
+        self.assertFalse(meta["prompt_capable"])
+        self.assertFalse(meta["budget_settable"])
+
+        # The kill switch mirrors agents.cursor.usage.
+        off = AgentRegistry(agents_config={"ollama": {"usage": False}})
+        self.assertNotIn("ollama", off.usage_fetchers())
+
+    def test_usage_summary_pairs_session_and_weekly(self):
+        self.assertEqual(
+            usage_summary(usages={"ollama": {"session_pct": 0.134,
+                                             "weekly_pct": 0.24}},
+                          display_name=lambda _a: "Ollama"),
+            "Ollama 13%/24%")
 
 
 class HookConfigTests(unittest.TestCase):

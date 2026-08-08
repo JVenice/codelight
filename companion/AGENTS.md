@@ -332,6 +332,77 @@ Behavior and quirks:
   messages are dropped; assistant tool calls show as a `⚙ <tool>` line.
 - Detection: `opencode` on PATH.
 
+## Ollama (`agents.ollama`)
+
+Keys:
+
+- `api_key_file` (string): file containing an Ollama Cloud API key, used for
+  the usage meter (or set `OLLAMA_API_KEY`, or drop the key in
+  `~/.config/codelight/ollama-api-key`).
+  - Default: empty (no meter)
+- `usage` (boolean): show the usage meters. Default: `true`.
+
+Ollama is a **usage meter and nothing else** — no status, permissions,
+questions, conversation or hooks. codelight deliberately does *not* probe for a
+local `ollama` binary: a local model server is not a coding-agent session, so
+detecting it would only produce a permanently-idle card with nothing to report.
+The card appears once a key is configured and the meter reads.
+
+Behavior and quirks:
+
+- **Usage meter:** session and weekly percentages from
+  `GET https://ollama.com/api/usage`, authed with `Authorization: Bearer`.
+  Ollama reports these as 0–1 fractions already — unlike Claude's 0–100, they
+  are not divided by 100.
+- The endpoint is **undocumented** (absent from Ollama's OpenAPI spec), so the
+  fetcher fails closed exactly like Cursor's: no key, a rejected key, a changed
+  schema or an offline host all hide the meter instead of showing a number.
+- **No reset countdown — clients render an empty reset.** The response carries
+  no reset timestamp for either window; the state layer's `"--"` default stands.
+  `activity.period` is a 4-week *activity* range,
+  not a quota reset: a countdown built from it would be wrong by up to three
+  weeks on weekly and always wrong on session. As with the Grok meter above,
+  codelight shows nothing rather than a number that means something other than
+  its label.
+- Key resolution: `OLLAMA_API_KEY`, then `agents.ollama.api_key_file`, then
+  the conventional `~/.config/codelight/ollama-api-key`. Env-or-file only — no
+  inline secret in config. The key is re-read on every poll, so creating the
+  file later starts the meter without a restart, and it is never logged (nor
+  is the response body). The conventional default exists so a companion
+  launched outside an interactive shell (desktop autostart, a service
+  manager) still finds a key the user dropped once: a key that lives only in
+  `~/.zshrc`/`~/.zshenv` never reaches a non-interactive process, and the
+  meter would be silently absent after a reboot.
+- **No key is a legible failure, not a silent absence.** With no credential
+  the meter is hidden (and, Ollama being usage-only with no status card, the
+  agent then disappears from every client). The daemon logs the reason once
+  per process pointing at the three resolution paths above, so a missing card
+  is diagnosable instead of mysterious.
+- A window that is missing or unreadable drops only its own bar — the same
+  behavior Codex got when OpenAI removed its 5-hour window. If neither window
+  reads, the meter hides entirely.
+- Ollama is the 7th agent and sorts before `opencode`, so it takes the last of
+  the six branding slots the ESP8266 screen can hold. The only effect is that
+  OpenCode's logo no longer appears in the sleep-screen logo pool; raising the
+  cap means changing the firmware's `MAX_AGENT_LOGOS` and reflashing.
+
+Example — explicit config (optional; the conventional default path below is
+read without any config entry):
+
+```json
+{
+  "agents": {
+    "ollama": {
+      "api_key_file": "~/.config/codelight/ollama-api-key"
+    }
+  }
+}
+```
+
+Zero-config alternative: `echo 'YOUR-KEY' > ~/.config/codelight/ollama-api-key`
+— the companion reads that path with no config entry, so it works from any
+launch path (terminal, desktop autostart, service manager).
+
 ## Combined example
 
 ```json
