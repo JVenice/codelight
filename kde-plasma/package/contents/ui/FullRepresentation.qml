@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Popup and desktop view: one block per seen agent (logo, status, usage bars,
-// session count on the active row); offline placeholder otherwise.
+// and session count), plus a labelled global total; offline placeholder otherwise.
 //
 // Uses a Flickable + ColumnLayout (ListView delegate layouts collapse heights).
 
@@ -38,7 +38,7 @@ PlasmaExtras.Representation {
 
     readonly property var status: full.plasmoidItem.status
     readonly property int sessions: full.status && typeof full.status.sessions === "number" ? full.status.sessions : 0
-    readonly property string sessionsLabel: full.sessions === 1 ? "1 session" : full.sessions + " sessions"
+    readonly property string totalSessionsLabel: full.sessions === 1 ? "Total: 1 session" : "Total: " + full.sessions + " sessions"
     readonly property real hMargin: Kirigami.Units.gridUnit
     // `Plasmoid.action()` isn't in the qmltypes; hold Plasmoid in a var.
     readonly property var plasmoidRef: Plasmoid
@@ -52,6 +52,11 @@ PlasmaExtras.Representation {
     function agentStatusForId(agentId) {
         const pas = full.status ? full.status.per_agent_status : null;
         return pas && pas[agentId] ? full.plasmoidItem.normalizeStatus(pas[agentId]) : "";
+    }
+
+    function agentSessionsForId(agentId) {
+        const pas = full.status ? full.status.per_agent_sessions : null;
+        return pas && typeof pas[agentId] === "number" ? pas[agentId] : 0;
     }
 
     // Only paint a background for an explicit palette override. On "System
@@ -101,6 +106,15 @@ PlasmaExtras.Representation {
                 Layout.preferredHeight: full.plasmoidItem.online ? full.hMargin : 0
             }
 
+            PlasmaComponents3.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: full.hMargin
+                Layout.rightMargin: full.hMargin
+                visible: full.plasmoidItem.online
+                text: full.totalSessionsLabel
+                color: full.plasmoidItem.paletteDisabled
+            }
+
             // ── One block per reported agent ─────────────────────────────
             Repeater {
                 model: full.plasmoidItem.agentOrder
@@ -113,7 +127,8 @@ PlasmaExtras.Representation {
                     readonly property string perStatus: full.agentStatusForId(agentBlock.agentId)
                     readonly property string iconStatus: agentBlock.perStatus || "offline"
                     readonly property string statusText: agentBlock.perStatus ? agentBlock.perStatus.toUpperCase() : ""
-                    readonly property bool isActive: agentBlock.agentId === full.plasmoidItem.activeAgentId
+                    readonly property int sessions: full.agentSessionsForId(agentBlock.agentId)
+                    readonly property string sessionsLabel: agentBlock.sessions === 1 ? "1 session" : agentBlock.sessions + " sessions"
 
                     readonly property var usage: {
                         const pau = full.status ? full.status.per_agent_usage : null;
@@ -156,17 +171,15 @@ PlasmaExtras.Representation {
                             Layout.fillWidth: true
                         }
 
-                        // Total active session count (active agent only).
+                        // Each agent's own active session count.
                         PlasmaComponents3.Label {
-                            text: full.sessionsLabel
+                            text: agentBlock.sessionsLabel
                             color: full.plasmoidItem.paletteDisabled
-                            visible: agentBlock.isActive
                         }
 
-                        // Wider gap before the status (active only).
+                        // Wider gap before the status.
                         Item {
-                            Layout.preferredWidth: agentBlock.isActive ? Kirigami.Units.largeSpacing : 0
-                            visible: agentBlock.isActive
+                            Layout.preferredWidth: Kirigami.Units.largeSpacing
                         }
 
                         // Fixed-width, right-aligned so the session count never shifts.

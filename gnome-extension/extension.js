@@ -221,10 +221,17 @@ function makeAgentHeader(name, separated = false) {
         x_align: Clutter.ActorAlign.END,
         y_align: Clutter.ActorAlign.CENTER,
     });
+    const sessions = new St.Label({
+        text: '0 sessions',
+        style: 'color: #888888; font-size: 10px;',
+        y_align: Clutter.ActorAlign.CENTER,
+    });
     row.add_child(label);
+    row.add_child(sessions);
     row.add_child(status);
     item.add_child(row);
     item._nameLabel = label;
+    item._sessionsLabel = sessions;
     item._statusLabel = status;
     return item;
 }
@@ -829,15 +836,21 @@ export default class CodelightExtension extends Extension {
         this._hdrDot.set_style(`color: ${hex};`);
         this._hdrDot.set_text('●');
         this._hdrStatus.set_text(`${activeName} ${status.toUpperCase()}`);
-        this._hdrSessions.set_text(sessions === 1 ? '1 session' : `${sessions} sessions`);
+        this._hdrSessions.set_text(sessions === 1 ? 'Total: 1 session' : `Total: ${sessions} sessions`);
 
         if (!hasActiveRequest) {
             const perAgent = data?.per_agent_usage ?? {};
             const perAgentStatus = data?.per_agent_status;
+            const perAgentSessions = data?.per_agent_sessions ?? {};
             // An agent we have no meter row for yet (e.g. added to the daemon
             // after connect) gets one on the fly.
             let added = false;
-            for (const agentId of Object.keys(perAgent)) {
+            const agentIds = new Set([
+                ...Object.keys(perAgent),
+                ...Object.keys(perAgentStatus ?? {}),
+                ...Object.keys(perAgentSessions),
+            ]);
+            for (const agentId of agentIds) {
                 if (!this._usageItems[agentId]) {
                     this._addUsageRow(agentId);
                     added = true;
@@ -847,9 +860,11 @@ export default class CodelightExtension extends Extension {
             for (const [agentId, items] of Object.entries(this._usageItems)) {
                 const usage = perAgent[agentId];
                 const hasStatus = perAgentStatus && Object.prototype.hasOwnProperty.call(perAgentStatus, agentId);
+                const sessionCount = perAgentSessions[agentId] ?? 0;
                 const display = usage?.agent_display ?? agentDisplay(agentId);
-                items.header.visible = !!usage || !!hasStatus;
+                items.header.visible = !!usage || !!hasStatus || Object.prototype.hasOwnProperty.call(perAgentSessions, agentId);
                 items.header._nameLabel.set_text(display);
+                items.header._sessionsLabel.set_text(sessionCount === 1 ? '1 session' : `${sessionCount} sessions`);
                 items.header._statusLabel.set_text(
                     normalizedStatus(perAgentStatus?.[agentId]).toUpperCase());
                 const limits = usageLimits(usage);

@@ -15,7 +15,7 @@ from codelight_core import dbus_service
 JsonDict = dict[str, Any]
 LogCallback = Callable[[str], None]
 StatusSnapshotCallback = Callable[[], JsonDict]
-OverallStatusCallback = Callable[[], tuple[int, str, dict[str, str], str]]
+OverallStatusCallback = Callable[[], tuple[int, str, dict[str, str], dict[str, int], str]]
 PendingPayloadsCallback = Callable[[], list[JsonDict]]
 ConversationPayloadCallback = Callable[[], JsonDict | None]
 SimpleCallback = Callable[[], None]
@@ -182,7 +182,7 @@ class CodelightWebsocketHub:
                 await asyncio.sleep(2)
                 if not self.clients and self.dbus_iface is None:
                     continue
-                _, current_status, _, _ = self._overall_status()
+                _, current_status, *_ = self._overall_status()
                 if current_status != self.last_status:
                     self.last_status = current_status
                     payload = self._status_snapshot()

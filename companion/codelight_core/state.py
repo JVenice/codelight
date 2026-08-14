@@ -163,12 +163,13 @@ class CodelightState:
     def _status_rank(status: str) -> int:
         return {"idle": 0, "waiting": 1, "working": 2}.get(status, 0)
 
-    def overall_status(self, pending_session_ids: set[str] | None = None) -> tuple[int, str, dict[str, str], str]:
+    def overall_status(self, pending_session_ids: set[str] | None = None) -> tuple[int, str, dict[str, str], dict[str, int], str]:
         pending_session_ids = pending_session_ids or set()
         now = time.time()
         active = 0
         overall = "idle"
         per_agent: dict[str, str] = {}
+        per_agent_sessions: dict[str, int] = {}
         with self._lock:
             last_agent = self.normalize_agent_id(self._last_active_agent)
             stale = [
@@ -186,6 +187,7 @@ class CodelightState:
                 active += 1
                 state = str(info.get("state") or "idle")
                 agent_id = self.normalize_agent_id(info.get("agent_id"))
+                per_agent_sessions[agent_id] = per_agent_sessions.get(agent_id, 0) + 1
                 prev = per_agent.get(agent_id, "idle")
                 if self._status_rank(state) > self._status_rank(prev):
                     per_agent[agent_id] = state
@@ -199,7 +201,7 @@ class CodelightState:
                 per_agent.setdefault(agent_id, "idle")
             if not per_agent:
                 per_agent[last_agent] = "idle"
-            return active, overall, per_agent, last_agent
+            return active, overall, per_agent, per_agent_sessions, last_agent
 
     def update_usage(
         self,
@@ -276,7 +278,7 @@ class CodelightState:
         return per_agent_usage
 
     def status_snapshot(self, pending_session_ids: set[str] | None = None) -> dict[str, Any]:
-        sessions, status, per_agent_status, last_agent = self.overall_status(pending_session_ids)
+        sessions, status, per_agent_status, per_agent_sessions, last_agent = self.overall_status(pending_session_ids)
 
         with self._lock:
             usage_snaps = {
@@ -302,6 +304,7 @@ class CodelightState:
             "sessions": sessions,
             "status": status,
             "per_agent_status": per_agent_status,
+            "per_agent_sessions": per_agent_sessions,
             "per_agent_usage": per_agent_usage,
             "last_active_agent": last_agent,
             "agent_id": last_agent,

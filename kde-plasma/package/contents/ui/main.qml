@@ -98,10 +98,10 @@ PlasmoidItem {
     // always gets the shell's dialog background.
     Plasmoid.backgroundHints: PlasmaCore.Types.DefaultBackground | PlasmaCore.Types.ConfigurableBackground
 
-    // Live tray/panel tooltip: agent + status, sessions, or the offline hint.
+    // Live tray/panel tooltip: active agent + status, labelled total, or offline hint.
     readonly property int sessionsCount: root.status && typeof root.status.sessions === "number" ? root.status.sessions : 0
     toolTipMainText: root.online ? root.agentDisplay(root.activeAgentId) + " " + root.activeStatus.toUpperCase() : "codelight offline"
-    toolTipSubText: root.online ? (root.sessionsCount === 1 ? "1 session" : root.sessionsCount + " sessions") : "Start the companion daemon"
+    toolTipSubText: root.online ? (root.sessionsCount === 1 ? "Total: 1 session" : "Total: " + root.sessionsCount + " sessions") : "Start the companion daemon"
 
     // Palette override: "system" | "light" | "dark" | "highcontrast".
     readonly property string themeMode: String(Plasmoid.configuration.theme || "system")
