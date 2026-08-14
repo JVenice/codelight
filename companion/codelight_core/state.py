@@ -188,7 +188,7 @@ class CodelightState:
                 state = str(info.get("state") or "idle")
                 agent_id = self.normalize_agent_id(info.get("agent_id"))
                 per_agent_sessions[agent_id] = per_agent_sessions.get(agent_id, 0) + 1
-                prev = per_agent.get(agent_id, "idle")
+                prev = per_agent.setdefault(agent_id, "idle")
                 if self._status_rank(state) > self._status_rank(prev):
                     per_agent[agent_id] = state
                 if state == "working":

@@ -61,8 +61,12 @@ PlasmoidItem {
     readonly property var agentOrder: {
         const pas = root.status ? root.status.per_agent_status : null;
         const pau = root.status ? root.status.per_agent_usage : null;
+        const pse = root.status ? root.status.per_agent_sessions : null;
         const usageIds = pau ? new Set(Object.keys(pau)) : new Set();
         const statusIds = pas ? new Set(Object.keys(pas)) : new Set();
+        if (pse)
+            for (const id of Object.keys(pse))
+                statusIds.add(id);
 
         const tier1 = []; // has usage
         const tier2 = []; // seen, no usage

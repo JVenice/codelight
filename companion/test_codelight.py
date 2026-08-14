@@ -751,6 +751,32 @@ class KdeClientModelTests(unittest.TestCase):
         union = set(per_agent_status) | set(per_agent_usage) | set(per_agent_sessions)
         self.assertGreaterEqual(union, {"claude", "grok", "codex", "copilot", "cursor"})
 
+    def test_idle_only_agent_still_gets_a_row_that_carries_its_count(self):
+        # opencode reports its sessions as "idle"; with no usage cache and no
+        # enabled-agent entry the applet would otherwise render no row for it
+        # while its sessions still counted toward the labelled total.
+        state = self.make_state()
+        state.set_enabled_agents({"claude"})
+        state.update_session("claude-1", "working", agent_id="claude")
+        state.update_session("opencode-1", "idle", agent_id="opencode")
+        state.update_session("opencode-2", "idle", agent_id="opencode")
+
+        snapshot = state.status_snapshot()
+        per_agent_status = snapshot["per_agent_status"]
+        per_agent_usage = snapshot["per_agent_usage"]
+        per_agent_sessions = snapshot["per_agent_sessions"]
+
+        self.assertNotIn("opencode", per_agent_usage)
+        self.assertEqual(per_agent_status.get("opencode"), "idle")
+        self.assertEqual(per_agent_sessions["opencode"], 2)
+        # Sessions never outrun the rows: every counted agent has a status row,
+        # so the visible rows sum to the labelled total.
+        union = set(per_agent_status) | set(per_agent_usage) | set(per_agent_sessions)
+        self.assertEqual(union, set(per_agent_status) | set(per_agent_usage))
+        self.assertEqual(
+            snapshot["sessions"],
+            sum(per_agent_sessions.get(agent_id, 0) for agent_id in union))
+
     def test_every_limit_entry_has_the_full_shape(self):
         state = self.make_state()
         state.update_usage(usages={

@@ -208,7 +208,7 @@ function makeAgentHeader(name, separated = false) {
     item.set_style(separated ? 'padding: 12px 12px 3px;' : 'padding: 4px 12px 3px;');
     const row = new St.BoxLayout({
         x_expand: true,
-        style: 'padding-bottom: 3px; border-bottom: 1px solid #555555;',
+        style: 'spacing: 8px; padding-bottom: 3px; border-bottom: 1px solid #555555;',
     });
     const label = new St.Label({
         text: name,
@@ -898,6 +898,7 @@ export default class CodelightExtension extends Extension {
             items.weekly.visible = false;
             items.session.visible = false;
             items.header._statusLabel.set_text('OFFLINE');
+            items.header._sessionsLabel.set_text('0 sessions');
             this._setMeter(items.weekly, null, null);
             this._setMeter(items.session, null, null);
         }
