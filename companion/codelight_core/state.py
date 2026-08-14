@@ -304,6 +304,10 @@ class CodelightState:
             "sessions": sessions,
             "status": status,
             "per_agent_status": per_agent_status,
+            # per_agent_sessions is consumed by the KDE Plasma applet only. The
+            # GNOME extension still shows a single global total pinned to the
+            # active agent and is intentionally unchanged by this KDE-only
+            # scope; teaching it per-agent counts is a separate follow-up.
             "per_agent_sessions": per_agent_sessions,
             "per_agent_usage": per_agent_usage,
             "last_active_agent": last_agent,
