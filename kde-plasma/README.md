@@ -10,10 +10,11 @@ icon with a popup **and** a resizable desktop widget — place it wherever you l
 
 The panel/tray icon shows the active agent's logo tinted with its status
 (**WORKING** orange, **WAITING** red, **IDLE** green, offline grey); hovering
-shows a live tooltip with agent, status, and session count. Click it to open a
-popup with usage grouped by agent. Agents without a usage meter still appear
-with status only, and the widget renders whatever usage limits the daemon
-exposes per agent (zero, one, or two windows) — windows that disappear as
+shows a live tooltip with agent, status, and the total session count across all
+agents. Click it to open a popup with that labelled total (`Total: 3 sessions`)
+above status and usage grouped by agent, where each agent row carries its own
+active session count. Agents without a usage meter still appear with status
+only, and the widget renders whatever usage limits the daemon exposes per agent (zero, one, or two windows) — windows that disappear as
 plans change vanish from the UI without showing 0%.
 
 Each usage row shows the window's label, the percentage used, a reset countdown
@@ -26,7 +27,7 @@ question prompts. See [Scope](#scope-this-version).
 <table>
 <tr>
 <td><img src="../assets/kde-plasma-tooltip.png" width="199"
-         alt="Tray icon tooltip showing agent, status, and session count"></td>
+         alt="Tray icon tooltip showing agent, status, and total session count"></td>
 <td><img src="../assets/kde-plasma-desktop.png" width="431"
          alt="Resizable desktop widget"></td>
 <td><img src="../assets/kde-plasma-desktop-light.png" width="430"
@@ -118,8 +119,8 @@ which carries agent branding + SVG logos) and the current status
 to polling on Plasma 6.2/6.3, see [Requires](#requires). When the daemon stops
 it shows an offline state and reconnects automatically on the next appearance —
 no reload needed. Only agents the daemon reports as seen
-(`per_agent_status` / `per_agent_usage`) are shown, matching the GNOME and
-Android clients.
+(`per_agent_status` / `per_agent_usage` / `per_agent_sessions`) are shown,
+matching the GNOME and Android clients.
 
 The package deliberately does **not** set `X-Plasma-DBusActivationService`.
 That key makes the system tray load the applet only while the named service is
