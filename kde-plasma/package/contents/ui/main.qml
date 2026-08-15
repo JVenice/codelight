@@ -61,8 +61,12 @@ PlasmoidItem {
     readonly property var agentOrder: {
         const pas = root.status ? root.status.per_agent_status : null;
         const pau = root.status ? root.status.per_agent_usage : null;
+        const pse = root.status ? root.status.per_agent_sessions : null;
         const usageIds = pau ? new Set(Object.keys(pau)) : new Set();
         const statusIds = pas ? new Set(Object.keys(pas)) : new Set();
+        if (pse)
+            for (const id of Object.keys(pse))
+                statusIds.add(id);
 
         const tier1 = []; // has usage
         const tier2 = []; // seen, no usage
@@ -98,10 +102,10 @@ PlasmoidItem {
     // always gets the shell's dialog background.
     Plasmoid.backgroundHints: PlasmaCore.Types.DefaultBackground | PlasmaCore.Types.ConfigurableBackground
 
-    // Live tray/panel tooltip: agent + status, sessions, or the offline hint.
+    // Live tray/panel tooltip: active agent + status, labelled total, or offline hint.
     readonly property int sessionsCount: root.status && typeof root.status.sessions === "number" ? root.status.sessions : 0
     toolTipMainText: root.online ? root.agentDisplay(root.activeAgentId) + " " + root.activeStatus.toUpperCase() : "codelight offline"
-    toolTipSubText: root.online ? (root.sessionsCount === 1 ? "1 session" : root.sessionsCount + " sessions") : "Start the companion daemon"
+    toolTipSubText: root.online ? (root.sessionsCount === 1 ? "Total: 1 session" : "Total: " + root.sessionsCount + " sessions") : "Start the companion daemon"
 
     // Palette override: "system" | "light" | "dark" | "highcontrast".
     readonly property string themeMode: String(Plasmoid.configuration.theme || "system")

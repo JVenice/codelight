@@ -503,7 +503,7 @@ class AuthenticationTests(unittest.TestCase):
             remote_questions=lambda: False,
             client_config=lambda client: {},
             status_snapshot=lambda: {},
-            overall_status=lambda: (0, "idle", {}, ""),
+            overall_status=lambda: (0, "idle", {}, {}, ""),
             pending_payloads=lambda: [],
             conversation_payload=lambda: None,
             conversation_payload_for=lambda agent_id: None,
@@ -716,7 +716,7 @@ class KdeClientModelTests(unittest.TestCase):
         self.assertNotIn("limits", limits_by["grok"])
         self.assertEqual(limits_by["grok"].get("limits", []), [])
 
-    def test_visible_agents_are_the_union_of_status_and_usage(self):
+    def test_visible_agents_are_the_union_of_status_usage_and_sessions(self):
         state = self.make_state()
         state.set_enabled_agents({"claude", "grok"})
         state.update_usage(usages={
@@ -724,10 +724,14 @@ class KdeClientModelTests(unittest.TestCase):
             "codex": {"weekly_pct": 0.55},
             "copilot": {"monthly_pct": 0.5},
         })
+        state.update_session("claude-1", "working", agent_id="claude")
+        state.update_session("cursor-1", "working", agent_id="cursor")
+        state.update_session("cursor-2", "waiting", agent_id="cursor")
 
         snapshot = state.status_snapshot()
         per_agent_status = snapshot["per_agent_status"]
         per_agent_usage = snapshot["per_agent_usage"]
+        per_agent_sessions = snapshot["per_agent_sessions"]
         # Grok: enabled (status idle) but no usage cache → status only.
         self.assertEqual(per_agent_status.get("grok"), "idle")
         self.assertNotIn("grok", per_agent_usage)
@@ -738,9 +742,40 @@ class KdeClientModelTests(unittest.TestCase):
         # Claude: default + enabled + usage → both.
         self.assertIn("claude", per_agent_status)
         self.assertIn("claude", per_agent_usage)
+        # Each row gets its own count, while legacy sessions stays the total.
+        self.assertEqual(per_agent_sessions["claude"], 1)
+        self.assertEqual(per_agent_sessions["cursor"], 2)
+        self.assertEqual(snapshot["sessions"], 3)
+        self.assertEqual(snapshot["sessions"], sum(per_agent_sessions.values()))
         # The union covers every visible agent the applet must render.
-        union = set(per_agent_status) | set(per_agent_usage)
-        self.assertGreaterEqual(union, {"claude", "grok", "codex", "copilot"})
+        union = set(per_agent_status) | set(per_agent_usage) | set(per_agent_sessions)
+        self.assertGreaterEqual(union, {"claude", "grok", "codex", "copilot", "cursor"})
+
+    def test_idle_only_agent_still_gets_a_row_that_carries_its_count(self):
+        # opencode reports its sessions as "idle"; with no usage cache and no
+        # enabled-agent entry the applet would otherwise render no row for it
+        # while its sessions still counted toward the labelled total.
+        state = self.make_state()
+        state.set_enabled_agents({"claude"})
+        state.update_session("claude-1", "working", agent_id="claude")
+        state.update_session("opencode-1", "idle", agent_id="opencode")
+        state.update_session("opencode-2", "idle", agent_id="opencode")
+
+        snapshot = state.status_snapshot()
+        per_agent_status = snapshot["per_agent_status"]
+        per_agent_usage = snapshot["per_agent_usage"]
+        per_agent_sessions = snapshot["per_agent_sessions"]
+
+        self.assertNotIn("opencode", per_agent_usage)
+        self.assertEqual(per_agent_status.get("opencode"), "idle")
+        self.assertEqual(per_agent_sessions["opencode"], 2)
+        # Sessions never outrun the rows: every counted agent has a status row,
+        # so the visible rows sum to the labelled total.
+        union = set(per_agent_status) | set(per_agent_usage) | set(per_agent_sessions)
+        self.assertEqual(union, set(per_agent_status) | set(per_agent_usage))
+        self.assertEqual(
+            snapshot["sessions"],
+            sum(per_agent_sessions.get(agent_id, 0) for agent_id in union))
 
     def test_every_limit_entry_has_the_full_shape(self):
         state = self.make_state()
@@ -1054,7 +1089,7 @@ class StateSnapshotTests(unittest.TestCase):
         with state._lock:
             state._sessions["question-session"]["time"] = 0
 
-        active, status, _, _ = state.overall_status({"question-session"})
+        active, status, *_ = state.overall_status({"question-session"})
 
         self.assertEqual(active, 1)
         self.assertEqual(status, "waiting")

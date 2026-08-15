@@ -334,7 +334,7 @@ def _broadcast_conversation() -> None:
         _ws_hub.broadcast_conversation()
 
 
-def _overall_status() -> tuple[int, str, dict[str, str], str]:
+def _overall_status() -> tuple[int, str, dict[str, str], dict[str, int], str]:
     """Return (active_count, overall_status) from in-memory session state.
     Cleans up sessions that have been silent longer than IDLE_WINDOW."""
     # Sessions with a pending remote permission/question request stay alive —
